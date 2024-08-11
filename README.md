@@ -1,7 +1,7 @@
 # JiggleArmature (Fork)
- Jiggle Bone Animation Tool for Blender
+Jiggle Bone Animation Tool for Blender.
  
-This is a jiggle bone animation add-on for Blender. To enable jiggle physics first enable "Jiggle Scene" in the 
+This is a Jiggle Bone animation addon for Blender. To enable jiggle physics first enable "Jiggle Scene" in the 
 Scene Properties and then enable "Jiggle Bone" on the Bones.
 
 Features:

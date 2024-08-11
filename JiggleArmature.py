@@ -40,10 +40,10 @@ from bpy.utils import register_class, unregister_class
 
 bl_info = {
     "name": "Jiggle Armature",
-    "author": "Simón Flores",
-    "version": (2, 2, 1),
+    "author": "Simón Flores, Shararamosh",
+    "version": (2, 3, 0),
     "blender": (2, 80, 0),
-    "description": "Jiggle bone animation tool",
+    "description": "Jiggle Bone Animation Tool",
     "warning": "",
     "wiki_url": "",
     "category": "Animation",
@@ -51,19 +51,26 @@ bl_info = {
 
 
 class JiggleArmature(bpy.types.PropertyGroup):
-    enabled: BoolProperty(default=True)
-    fps: FloatProperty(name="simulation fps", default=24)
-    time_acc: FloatProperty(default=0.0)
+    """
+    Class containing Armature jiggle property.
+    """
+    enabled: BoolProperty(name="Enabled", default=True)
+    fps: FloatProperty(name="Simulation FPS", default=24)
 
 
 class JiggleScene(bpy.types.PropertyGroup):
+    """
+    Class containing Scene jiggle property.
+    """
     test_mode: BoolProperty(default=False)
-    sub_steps: IntProperty(min=1, default=2)
-    iterations: IntProperty(min=1, default=4)
-    last_frame: IntProperty()
+    sub_steps: IntProperty(name="Sub-steps", min=1, default=2)
+    iterations: IntProperty(name="Iterations", min=1, default=4)
 
 
-class JARM_PT_armature(bpy.types.Panel):
+class JARMPTArmature(bpy.types.Panel):
+    """
+    Class containing Armature jiggle panel.
+    """
     bl_idname = "ARMATURE_PT_jiggle"
     bl_label = "Jiggle Armature"
     bl_space_type = 'PROPERTIES'
@@ -75,14 +82,26 @@ class JARM_PT_armature(bpy.types.Panel):
     def poll(cls, context):
         return context.object is not None and context.object.type == 'ARMATURE'
 
+    def draw_header(self, context):
+        """
+        Function for drawing header of Armature jiggle panel.
+        """
+        layout = self.layout
+        layout.prop(context.object.data.jiggle, "enabled", text="")
+
     def draw(self, context):
         layout = self.layout
         col = layout.column()
-        col.prop(context.object.data.jiggle, "enabled")
+        layout.enabled = context.scene.jiggle.test_mode and context.object.data.jiggle.enabled
+        if not context.scene.jiggle.test_mode:
+            col.label(text="Jiggle is disabled for this Scene, see Scene Properties.")
         col.prop(context.object.data.jiggle, "fps")
 
 
-class JARM_PT_scene(bpy.types.Panel):
+class JARMPTScene(bpy.types.Panel):
+    """
+    Class containing Scene jiggle panel.
+    """
     bl_idname = "SCENE_PT_jiggle"
     bl_label = "Jiggle Scene"
     bl_space_type = 'PROPERTIES'
@@ -91,94 +110,134 @@ class JARM_PT_scene(bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
+        """
+        Function for drawing header of Scene jiggle panel.
+        """
         layout = self.layout
-        bon = context.bone
         layout.prop(context.scene.jiggle, "test_mode", text="")
 
     def draw(self, context):
+        """
+        Function for drawing body of Scene jiggle panel.
+        """
         layout = self.layout
         col = layout.column()
-
+        layout.enabled = context.scene.jiggle.test_mode
         col.prop(context.scene.jiggle, "iterations")
+        col.operator("jiggle.bake", text="Bake Selected Jiggle Bones").a = False
+        col.operator("jiggle.bake", text="Bake All Jiggle Bones").a = True
 
-        col.operator("jiggle.bake", text="Bake Selected").a = False
-        col.operator("jiggle.bake", text="Bake All").a = True
 
-
-inop = False
+INOP = False
 
 
 def funp(prop):
+    """
+    From my guess, it's a function that changes values of custom Blender properties.
+    """
+
     def f(self, context):
-        global inop
-        if inop:
+        """
+        Some kind of clever hack for Blender.
+        """
+        global INOP
+        if INOP:
             return
-        inop = True
+        INOP = True
         b = context.bone
         o = context.object
         arm = o.data
         for b2 in arm.bones:
             if b2.select:
                 setattr(b2, prop, getattr(b, prop))
-        inop = False
+        INOP = False
 
     return f
 
 
 def setq(om, m):
+    """
+    Looks like a function that copies mutable 4 elements iterable to another one.
+    As I can see it's used for copying quaternion values.
+    """
     for i in range(4):
         om[i] = m[i]
 
 
-class JARM_OT_reset(bpy.types.Operator):
+def reset_jigglebone_state(context):
+    """
+    Static function that resets current jiggle bone values.
+    """
+    scene = context.scene
+    for o in scene.objects:
+        if o.select_get() and o.type == 'ARMATURE':
+            # arm = o.data
+            ow = o.matrix_world
+            # scale = maxis(ow, 0).length
+            # iow = ow.inverted()
+            # i = 0
+            for b in o.pose.bones:
+                if b.bone.select:
+                    m = ow @ b.matrix
+                    setq(b.bone.jiggle_R, m.to_quaternion().normalized())
+                    b.bone.jiggle_V = Vector((0, 0, 0))
+                    b.bone.jiggle_P = m_pos(m) + m_axis(m, 1) * b.bone.length * 0.5
+                    b.bone.jiggle_W = Vector((0, 0, 0))
+
+
+class JARMOTReset(bpy.types.Operator):
+    """
+    Resets current jiggle bone values
+    """
     bl_idname = "jiggle.reset"
     bl_label = "Reset State"
 
     def execute(self, context):
-        scene = context.scene
-        for o in scene.objects:
-            if (o.select_get() and o.type == 'ARMATURE'):
-                arm = o.data
-                ow = o.matrix_world
-                scale = maxis(ow, 0).length
-                iow = ow.inverted()
-                i = 0
-                for b in o.pose.bones:
-                    if (b.bone.select):
-                        M = ow @ b.matrix
-
-                        Jb = b.bone
-                        setq(Jb.jiggle_R, M.to_quaternion().normalized())
-                        Jb.jiggle_V = Vector((0, 0, 0))
-                        Jb.jiggle_P = mpos(M) + maxis(M, 1) * b.bone.length * 0.5
-                        Jb.jiggle_W = Vector((0, 0, 0))
-
+        """
+        Function that resets current jiggle bone values.
+        """
+        reset_jigglebone_state(context)
         return {'FINISHED'}
 
 
-class JARM_OT_set_rest(bpy.types.Operator):
+def set_jigglebone_rest_state(context):
+    """
+    Static function that sets current bone values as jiggle bone rest pose.
+    """
+    scene = context.scene
+    for o in scene.objects:
+        if o.type == 'ARMATURE' and o.select_get():
+            # arm = o.data
+            # ow = o.matrix_world
+            # scale = maxis(ow, 0).length
+            # iow = ow.inverted()
+            # i = 0
+            for b in o.pose.bones:
+                if b.bone.select:
+                    m = b.parent.matrix.inverted() @ b.matrix  # ow*Sbp.wmat* Sb.rmat #im
+                    setq(b.bone.jiggle_rest, m.to_quaternion().normalized())
+                    b.bone.jiggle_use_custom_rest = True
+
+
+class JARMOTSetRest(bpy.types.Operator):
+    """
+    Sets current bone values as jiggle bone rest pose
+    """
     bl_idname = "jiggle.set_rest"
     bl_label = "Set Rest"
 
     def execute(self, context):
-        scene = context.scene
-        for o in scene.objects:
-            if o.select_get() and o.type == 'ARMATURE':
-                arm = o.data
-                ow = o.matrix_world
-                scale = maxis(ow, 0).length
-                iow = ow.inverted()
-                i = 0
-                for b in o.pose.bones:
-                    if b.bone.select:
-                        M = b.parent.matrix.inverted() @ b.matrix  # ow*Sbp.wmat* Sb.rmat #im
-                        Jb = b.bone
-                        setq(Jb.jiggle_rest, M.to_quaternion().normalized())
-                        Jb.jiggle_use_custom_rest = True
+        """
+        Function that sets current bone values as jiggle bone rest pose.
+        """
+        set_jigglebone_rest_state(context)
         return {'FINISHED'}
 
 
-class JARM_PT_bone(bpy.types.Panel):
+class JARMPTBone(bpy.types.Panel):
+    """
+    Class contaning Bone jiggle panel.
+    """
     bl_idname = "BONE_PT_jiggle_bone"
     bl_label = "Jiggle Bone"
     bl_space_type = 'PROPERTIES'
@@ -188,7 +247,11 @@ class JARM_PT_bone(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.bone is not None and context.object is not None and context.object.type == 'ARMATURE'
+        if context.object is None:
+            return False
+        if context.object.type != 'ARMATURE':
+            return False
+        return context.bone is not None
 
     def draw_header(self, context):
         layout = self.layout
@@ -197,689 +260,685 @@ class JARM_PT_bone(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        armature = context.object.data
-
-        bon = context.bone
         col = layout.column()
-        layout.enabled = context.scene.jiggle.test_mode and armature.jiggle.enabled
-
+        armature = context.object.data
+        layout.enabled = (context.scene.jiggle.test_mode and armature.jiggle.enabled and
+                          context.bone.jiggle_enabled)
         if not context.scene.jiggle.test_mode:
-            col.label(text="JiggleArmature is disabled for the scene, see scene properties")
-
-        if not armature.jiggle.enabled:
-            col.label(
-                text="JiggleArmature is disabled for the armature, see the armature properties")
-
-        if bon.jiggle_enabled:
-
-            col.prop(context.bone, "jiggle_Ks")
-            col.prop(bon, "jiggle_Kd")
-            col.prop(bon, "jiggle_Kld")
-            col.prop(bon, "jiggle_mass")
-
-            col.prop_search(bon, "jiggle_control_object", bpy.data, "objects")
-            if bon.jiggle_control_object in bpy.data.objects:
-                o = bpy.data.objects[bon.jiggle_control_object]
-                if o.type == 'ARMATURE':
-                    col.prop_search(bon, "jiggle_control_bone", o.data, "bones")
-                col.prop(bon, "jiggle_control")
-
-            col.operator("jiggle.reset")
-            col.prop(bon, "jiggle_use_custom_rest")
-            if bon.jiggle_use_custom_rest:
-                col.prop(bon, "jiggle_rest")
+            col.label(text="Jiggle is disabled for this Scene, see Scene Properties.")
+        elif not armature.jiggle.enabled:
+            col.label(text="Jiggle is disabled for this Armature, see Armature Properties.")
+        col.prop(context.bone, "jiggle_Ks")
+        col.prop(context.bone, "jiggle_Kd")
+        col.prop(context.bone, "jiggle_Kld")
+        col.prop(context.bone, "jiggle_mass")
+        col.prop_search(context.bone, "jiggle_control_object", bpy.data, "objects")
+        if context.bone.jiggle_control_object in bpy.data.objects:
+            o = bpy.data.objects[context.bone.jiggle_control_object]
+            if o.type == 'ARMATURE':
+                col.prop_search(context.bone, "jiggle_control_bone", o.data, "bones")
+            col.prop(context.bone, "jiggle_control")
+        col.operator("jiggle.reset")
+        col.prop(context.bone, "jiggle_use_custom_rest")
+        if context.bone.jiggle_use_custom_rest:
+            col.prop(context.bone, "jiggle_rest")
             col.operator("jiggle.set_rest")
-            if bon.parent is None:
-                col.label(text="warning: jibblebones without parent will fall", icon='COLOR_RED')
+        if context.bone.parent is None:
+            col.label(text="Warning: Jiggle bones without parent will fall.", icon='COLOR_RED')
 
 
-def centerM(wb, l):
-    ax = maxis(wb, 1).normalized()
+def center_m(wb, l):
+    """
+    Some kind of centering.
+    """
+    ax = m_axis(wb, 1).normalized()
     wb[0][3] += ax[0] * l * 0.5
     wb[1][3] += ax[1] * l * 0.5
     wb[2][3] += ax[2] * l * 0.5
 
 
-# adapted from https://github.com/InteractiveComputerGraphics/PositionBasedDynamics/blob/master/PositionBasedDynamics/PositionBasedRigidBodyDynamics.cpp
-def computeMatrixK(connector, invMass, x, inertiaInverseW, K):
-    if (invMass != 0.0):
-        v = connector - x
-        a = v[0]
-        b = v[1]
-        c = v[2]
-        if (True):
-            j11 = inertiaInverseW[0][0]
-            j12 = inertiaInverseW[1][0]
-            j13 = inertiaInverseW[2][0]
-            j22 = inertiaInverseW[1][1]
-            j23 = inertiaInverseW[2][1]
-            j33 = inertiaInverseW[2][2]
-
-            K[0][0] = c * c * j22 - b * c * (j23 + j23) + b * b * j33 + invMass
-            K[1][0] = -(c * c * j12) + a * c * j23 + b * c * j13 - a * b * j33
-            K[2][0] = b * c * j12 - a * c * j22 - b * b * j13 + a * b * j23
-            K[0][1] = K[1][0]
-            K[1][1] = c * c * j11 - a * c * (j13 + j13) + a * a * j33 + invMass
-            K[2][1] = -(b * c * j11) + a * c * j12 + a * b * j13 - a * a * j23
-            K[0][2] = K[2][0]
-            K[1][2] = K[2][1]
-            K[2][2] = b * b * j11 - a * b * (j12 + j12) + a * a * j22 + invMass
-        else:
-            j11 = inertiaInverseW[0][0]
-            j12 = inertiaInverseW[0][1]
-            j13 = inertiaInverseW[0][2]
-            j22 = inertiaInverseW[1][1]
-            j23 = inertiaInverseW[1][2]
-            j33 = inertiaInverseW[2][2]
-
-            K[0][0] = c * c * j22 - b * c * (j23 + j23) + b * b * j33 + invMass
-            K[0][1] = -(c * c * j12) + a * c * j23 + b * c * j13 - a * b * j33
-            K[0][2] = b * c * j12 - a * c * j22 - b * b * j13 + a * b * j23
-            K[1][0] = K[0][1]
-            K[1][1] = c * c * j11 - a * c * (j13 + j13) + a * a * j33 + invMass
-            K[1][2] = -(b * c * j11) + a * c * j12 + a * b * j13 - a * a * j23
-            K[2][0] = K[0][2]
-            K[2][1] = K[1][2]
-            K[2][2] = b * b * j11 - a * b * (j12 + j12) + a * a * j22 + invMass
+# adapted from https://github.com/InteractiveComputerGraphics/PositionBasedDynamics/blob/master/
+# PositionBasedDynamics/PositionBasedRigidBodyDynamics.cpp
+def compute_matrix_k(connector, inv_mass, x, inertia_inverse_w, k):
+    """
+    Function to calculate K matrix.
+    """
+    if inv_mass == 0.0:
+        k.zero()
+        return
+    use_new_implementation = True
+    v = connector - x
+    a = v[0]
+    b = v[1]
+    c = v[2]
+    if use_new_implementation:
+        j11 = inertia_inverse_w[0][0]
+        j12 = inertia_inverse_w[1][0]
+        j13 = inertia_inverse_w[2][0]
+        j22 = inertia_inverse_w[1][1]
+        j23 = inertia_inverse_w[2][1]
+        j33 = inertia_inverse_w[2][2]
+        k[0][0] = c * c * j22 - b * c * (j23 + j23) + b * b * j33 + inv_mass
+        k[1][0] = -(c * c * j12) + a * c * j23 + b * c * j13 - a * b * j33
+        k[2][0] = b * c * j12 - a * c * j22 - b * b * j13 + a * b * j23
+        k[0][1] = k[1][0]
+        k[1][1] = c * c * j11 - a * c * (j13 + j13) + a * a * j33 + inv_mass
+        k[2][1] = -(b * c * j11) + a * c * j12 + a * b * j13 - a * a * j23
+        k[0][2] = k[2][0]
+        k[1][2] = k[2][1]
+        k[2][2] = b * b * j11 - a * b * (j12 + j12) + a * a * j22 + inv_mass
     else:
-        K.zero()
+        j11 = inertia_inverse_w[0][0]
+        j12 = inertia_inverse_w[0][1]
+        j13 = inertia_inverse_w[0][2]
+        j22 = inertia_inverse_w[1][1]
+        j23 = inertia_inverse_w[1][2]
+        j33 = inertia_inverse_w[2][2]
+        k[0][0] = c * c * j22 - b * c * (j23 + j23) + b * b * j33 + inv_mass
+        k[0][1] = -(c * c * j12) + a * c * j23 + b * c * j13 - a * b * j33
+        k[0][2] = b * c * j12 - a * c * j22 - b * b * j13 + a * b * j23
+        k[1][0] = k[0][1]
+        k[1][1] = c * c * j11 - a * c * (j13 + j13) + a * a * j33 + inv_mass
+        k[1][2] = -(b * c * j11) + a * c * j12 + a * b * j13 - a * a * j23
+        k[2][0] = k[0][2]
+        k[2][1] = k[1][2]
+        k[2][2] = b * b * j11 - a * b * (j12 + j12) + a * a * j22 + inv_mass
 
 
 class JB:
-    def __init__(self, b, M, p):
-        self.M = M.copy()
-        self.length = b.bone.length * maxis(M, 0).length
+    """
+    Class containing jiggle bone properties.
+    """
+
+    def __init__(self, b, m, p):
+        self.m = m.copy()
+        self.length = b.bone.length * m_axis(m, 0).length
         self.b = b
         self.parent = p
         self.rest = None
         self.rest_w = None
         self.w = 0
-        self.Kc = 0
-        self.cQ = None
-        self.X = None
-        self.P = None
-        self.R = None
-        self.Q = None
-        self.iI = Matrix.Identity(3)  # first naive approach
-        self.iIw = self.iI
+        self.k_c = 0
+        self.c_q = None
+        self.x = None
+        self.p = None
+        self.r = None
+        self.q = None
+        self.i_i = Matrix.Identity(3)  # first naive approach
+        self.i_iw = self.i_i
+        self.l = 0
 
-    def computeI(self):
-        self.iI = Matrix.Identity(3) * (self.w / (self.l * self.l) * 5.0 / 2.0)
+    def compute_i(self):
+        """
+        This function may have error - l variable is not defined in class.
+        """
+        self.i_i = Matrix.Identity(3) * (self.w / (self.l * self.l) * 5.0 / 2.0)
 
-    def updateIW(self):
-        rot = self.Q.to_matrix()
-        self.iIw = rot @ self.iI @ rot.transposed()
+    def update_iw(self):
+        """
+        No clue what this function does.
+        """
+        rot = self.q.to_matrix()
+        self.i_iw = rot @ self.i_i @ rot.transposed()
 
 
-def propB(ow, b, l, p):
+def prop_b(ow, b, l, p):
+    """
+    No clue on what this function does.
+    """
     j = JB(b, ow @ b.matrix, p)
     l.append(j)
     for c in b.children:
-        propB(ow, c, l, j)
+        prop_b(ow, c, l, j)
 
 
-def maxis(M, i):
-    return Vector((M[0][i], M[1][i], M[2][i]))
+def m_axis(m, i):
+    """
+    Generates vector from one of matrix axes.
+    """
+    return Vector((m[0][i], m[1][i], m[2][i]))
 
 
-def saxis(M, i, v):
-    M[0][i] = v[0]
-    M[1][i] = v[1]
-    M[2][i] = v[2]
+def s_axis(m, i, v):
+    """
+    Generates one of matrix axes from vector.
+    """
+    m[0][i] = v[0]
+    m[1][i] = v[1]
+    m[2][i] = v[2]
 
 
-def mpos(M):
-    return Vector((M[0][3], M[1][3], M[2][3]))
+def m_pos(m):
+    """
+    Generates vector from last matrix axis.
+    """
+    return m_axis(m, 3)
+    # return Vector((m[0][3], m[1][3], m[2][3]))
 
 
-def ort(M):
-    a = M[0]
-    b = M[1]
-    c = M[2]
+def ort(m):
+    """
+    Generates orthogonal matrix.
+    """
+    a = m[0]
+    b = m[1]
+    c = m[2]
     a = a.normalized()
     b = (b - a * a.dot(b)).normalized()
     c = (c - a * a.dot(c) - b * b.dot(c)).normalized()
-    M = Matrix.Identity(3)
-    M[0] = a
-    M[1] = b
-    M[2] = c
-    return M
+    m = Matrix.Identity(3)
+    m[0] = a
+    m[1] = b
+    m[2] = c
+    return m
 
 
-def qadd(a, b):
+def q_add(a, b):
+    """
+    Generates sum of 2 quaternions.
+    """
     return Quaternion((a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]))
 
 
-def qadd2(a, b):
+def q_add2(a, b):
+    """
+    Generates sum of 2 quaternions.
+    """
     a.x += b.x
     a.y += b.y
     a.z += b.z
     a.w += b.w
 
 
-def normR(m):
+def norm_r(m):
+    """
+    Looks like normalizing matrix.
+    """
     for i in range(3):
-        saxis(m, i, maxis(m, i).normalized())
+        s_axis(m, i, m_axis(m, i).normalized())
 
 
 K1 = Matrix().to_3x3()
 K2 = Matrix().to_3x3()
 
 
-def locSpring(Jb):
+def loc_spring(jb):
+    """
+    Looks like generating spring location.
+    """
     global K1
     global K2
-
-    Q0 = Jb.parent.Q
-    Q1 = Jb.Q
-    w0 = Jb.parent.w
-    w1 = Jb.w
-
-    v0 = Jb.rest_p
-
-    P0 = Jb.parent.P
-    P1 = Jb.P
-    lf = Jb.l * 0.5
-
-    Jb.updateIW()
-    Jb.parent.updateIW()
-
-    connector0 = Jb.parent.P + Jb.parent.Q @ v0
-    connector1 = Jb.P + Jb.Q @ Vector((0, -lf, 0))
-
-    computeMatrixK(connector0, w0, P0, Jb.parent.iIw, K1)
-    computeMatrixK(connector1, w1, P1, Jb.iIw, K2)
-
-    Kinv = (K1 + K2).inverted()
-
-    pt = Kinv @ (connector1 - connector0)
-    if (w0 != 0.0):
-        r0 = connector0 - P0
-        Jb.parent.P += w0 * pt
-        ot = (Jb.parent.iIw @ (r0.cross(pt)))
-
-        otQ = Quaternion()
-        otQ.x = ot[0]
-        otQ.y = ot[1]
-        otQ.z = ot[2]
-        otQ.w = 0
-        Jb.parent.Q = qadd(Jb.parent.Q, otQ @ Jb.parent.Q * 0.5).normalized()
-
-    if (w1 != 0.0):
-        r1 = connector1 - P1
-        Jb.P += -w1 * pt
-        ot = (Jb.iIw @ (r1.cross(-pt)))
-
-        otQ = Quaternion()
-        otQ.x = ot[0]
-        otQ.y = ot[1]
-        otQ.z = ot[2]
-        otQ.w = 0
-        Jb.Q = qadd(Jb.Q, otQ @ Jb.Q * 0.5).normalized()
+    # q0 = jb.parent.Q
+    # q1 = jb.Q
+    w0 = jb.parent.w
+    w1 = jb.w
+    v0 = jb.rest_p
+    p0 = jb.parent.p
+    p1 = jb.p
+    lf = jb.l * 0.5
+    jb.update_iw()
+    jb.parent.update_iw()
+    connector0 = jb.parent.p + jb.parent.q @ v0
+    connector1 = jb.p + jb.q @ Vector((0, -lf, 0))
+    compute_matrix_k(connector0, w0, p0, jb.parent.i_iw, K1)
+    compute_matrix_k(connector1, w1, p1, jb.i_iw, K2)
+    k_inv = (K1 + K2).inverted()
+    pt = k_inv @ (connector1 - connector0)
+    if w0 != 0.0:
+        r0 = connector0 - p0
+        jb.parent.p += w0 * pt
+        ot = (jb.parent.i_iw @ (r0.cross(pt)))
+        ot_q = Quaternion()
+        ot_q.x = ot[0]
+        ot_q.y = ot[1]
+        ot_q.z = ot[2]
+        ot_q.w = 0
+        jb.parent.q = q_add(jb.parent.q, ot_q @ jb.parent.q * 0.5).normalized()
+    if w1 != 0.0:
+        r1 = connector1 - p1
+        jb.p += -w1 * pt
+        ot = (jb.i_iw @ (r1.cross(-pt)))
+        ot_q = Quaternion()
+        ot_q.x = ot[0]
+        ot_q.y = ot[1]
+        ot_q.z = ot[2]
+        ot_q.w = 0
+        jb.q = q_add(jb.q, ot_q @ jb.q * 0.5).normalized()
 
 
-sqrt = math.sqrt
-
-
-# NOTE: the following gradient computation implementation was automatically generated, if possible, it should be change for a clearer implementation
-def quatSpringGradient2(Q0, Q1, r):
+# NOTE: the following gradient computation implementation was automatically generated, if possible,
+# it should be changed for a clearer implementation
+def quat_spring_gradient2(q0, q1, r):
     """
-    returns the gradient of C = |Q0*r - Q1|^2 wrt Q0 and Q1  
+    Returns the gradient of C = |Q0*r - Q1|^2 wrt Q0 and Q1.
     """
-    Q0x = Q0.x
-    Q0y = Q0.y
-    Q0z = Q0.z
-    Q0w = Q0.w
-    Q1x = Q1.x
-    Q1y = Q1.y
-    Q1z = Q1.z
-    Q1w = Q1.w
+    q0x = q0.x
+    q0y = q0.y
+    q0z = q0.z
+    q0w = q0.w
+    q1x = q1.x
+    q1y = q1.y
+    q1z = q1.z
+    q1w = q1.w
     rx = r.x
     ry = r.y
     rz = r.z
     rw = r.w
-
-    tmp0 = math.sqrt(((((((((-(Q0x * Q1w) - (Q0y * Q1z)) + (Q0w * Q1x)) + (Q0z * Q1y)) - rx) * (
-            (((-(Q0x * Q1w) - (Q0y * Q1z)) + (Q0w * Q1x)) + (Q0z * Q1y)) - rx)) + (((((-(
-            Q0x * Q1y) - (Q0z * Q1w)) + (Q0w * Q1z)) + (Q0y * Q1x)) - rz) * ((((-(Q0x * Q1y) - (
-            Q0z * Q1w)) + (Q0w * Q1z)) + (Q0y * Q1x)) - rz))) + (((((-(Q0y * Q1w) - (
-            Q0z * Q1x)) + (Q0w * Q1y)) + (Q0x * Q1z)) - ry) * ((((-(Q0y * Q1w) - (
-            Q0z * Q1x)) + (Q0w * Q1y)) + (Q0x * Q1z)) - ry))) + ((((((Q0w * Q1w) + (
-            Q0x * Q1x)) + (Q0y * Q1y)) + (Q0z * Q1z)) - rw) * (((((Q0w * Q1w) + (Q0x * Q1x)) + (
-            Q0y * Q1y)) + (Q0z * Q1z)) - rw))))
-    tmp1 = 1.0 / tmp0 * Q0w * Q0y
-    tmp2 = 1.0 / tmp0 * Q0w * Q1x
-    tmp3 = 1.0 / tmp0 * Q0w * Q0x
-    tmp4 = 1.0 / tmp0 * Q0x * Q1w
-    tmp5 = 1.0 / tmp0 * Q0w * Q1w
-    tmp6 = 1.0 / tmp0 * Q0y * Q1w
-    tmp7 = 1.0 / tmp0 * Q0w * Q0z
-    tmp8 = 1.0 / tmp0 * Q0x * Q1x
-    tmp9 = 1.0 / tmp0 * Q0y * Q1x
-    tmp10 = 1.0 / tmp0 * Q0x * Q0y
-    tmp11 = 1.0 / tmp0 * Q0x * Q0z
-    tmp12 = 1.0 / tmp0 * Q0z * Q1w
-    tmp13 = 1.0 / tmp0 * Q0z * Q1x
-    tmp14 = 1.0 / tmp0 * Q0y * Q0z
-    tmp15 = 1.0 / tmp0 * Q0w * Q0w
-    tmp16 = Q1w * Q1w
-    tmp17 = 1.0 / tmp0 * Q0x * Q0x
-    tmp18 = Q1x * Q1x
-    tmp19 = 1.0 / tmp0 * Q0y * Q0y
+    tmp0 = math.sqrt(((((((((-(q0x * q1w) - (q0y * q1z)) + (q0w * q1x)) + (q0z * q1y)) - rx) * (
+            (((-(q0x * q1w) - (q0y * q1z)) + (q0w * q1x)) + (q0z * q1y)) - rx)) + (((((-(
+            q0x * q1y) - (q0z * q1w)) + (q0w * q1z)) + (q0y * q1x)) - rz) * ((((-(q0x * q1y) - (
+            q0z * q1w)) + (q0w * q1z)) + (q0y * q1x)) - rz))) + (((((-(q0y * q1w) - (
+            q0z * q1x)) + (q0w * q1y)) + (q0x * q1z)) - ry) * ((((-(q0y * q1w) - (
+            q0z * q1x)) + (q0w * q1y)) + (q0x * q1z)) - ry))) + ((((((q0w * q1w) + (
+            q0x * q1x)) + (q0y * q1y)) + (q0z * q1z)) - rw) * (((((q0w * q1w) + (q0x * q1x)) + (
+            q0y * q1y)) + (q0z * q1z)) - rw))))
+    tmp1 = 1.0 / tmp0 * q0w * q0y
+    tmp2 = 1.0 / tmp0 * q0w * q1x
+    tmp3 = 1.0 / tmp0 * q0w * q0x
+    tmp4 = 1.0 / tmp0 * q0x * q1w
+    tmp5 = 1.0 / tmp0 * q0w * q1w
+    tmp6 = 1.0 / tmp0 * q0y * q1w
+    tmp7 = 1.0 / tmp0 * q0w * q0z
+    tmp8 = 1.0 / tmp0 * q0x * q1x
+    tmp9 = 1.0 / tmp0 * q0y * q1x
+    tmp10 = 1.0 / tmp0 * q0x * q0y
+    tmp11 = 1.0 / tmp0 * q0x * q0z
+    tmp12 = 1.0 / tmp0 * q0z * q1w
+    tmp13 = 1.0 / tmp0 * q0z * q1x
+    tmp14 = 1.0 / tmp0 * q0y * q0z
+    tmp15 = 1.0 / tmp0 * q0w * q0w
+    tmp16 = q1w * q1w
+    tmp17 = 1.0 / tmp0 * q0x * q0x
+    tmp18 = q1x * q1x
+    tmp19 = 1.0 / tmp0 * q0y * q0y
     tmp20 = 1.0 / tmp0
-    tmp21 = Q1y * Q1y
-    tmp22 = tmp20 * Q0z * Q0z
-    tmp23 = Q1z * Q1z
-    tmp24 = tmp20 * Q0x
-    tmp25 = tmp20 * Q0y
-    tmp26 = tmp4 * Q1x
-    tmp27 = tmp24 * Q1y * Q1z
-    tmp28 = tmp3 * Q1y
-    tmp29 = tmp20 * Q0z
-    tmp30 = tmp3 * Q1z
-    tmp31 = tmp3 * Q1w
-    tmp32 = tmp5 * Q1y
-    tmp33 = tmp5 * Q1z
-    tmp34 = tmp1 * Q1z
-    tmp35 = tmp5 * Q1x
-    tmp36 = tmp1 * Q1x
-    tmp37 = tmp1 * Q1w
-    tmp38 = tmp6 * Q1y
-    tmp39 = tmp7 * Q1y
-    tmp40 = tmp2 * Q1z
-    tmp41 = tmp7 * Q1x
-    tmp42 = tmp9 * Q1z
-    tmp43 = tmp2 * Q1y
-    tmp44 = tmp3 * Q1x
-    tmp45 = tmp7 * Q1w
-    tmp46 = tmp20 * Q0w * Q1y * Q1z
-    tmp47 = tmp10 * Q1x
-    tmp48 = tmp4 * Q1z
-    tmp49 = tmp10 * Q1y
-    tmp50 = tmp10 * Q1w
-    tmp51 = tmp6 * Q1z
-    tmp52 = tmp4 * Q1y
-    tmp53 = tmp1 * Q1y
-    tmp54 = tmp12 * Q1z
-    tmp55 = -Q0x * Q1w - Q0y * Q1z + Q0w * Q1x + Q0z * Q1y - rx
-    tmp56 = tmp20 * Q1w
-    tmp57 = tmp11 * Q1z
-    tmp58 = tmp9 * Q1y
-    tmp59 = tmp7 * Q1z
-    tmp60 = tmp11 * Q1x
-    tmp61 = tmp8 * Q1y
-    tmp62 = tmp13 * Q1y
-    tmp63 = tmp11 * Q1w
-    tmp64 = tmp8 * Q1z
-    tmp65 = -Q0x * Q1y - Q0z * Q1w + Q0w * Q1z + Q0y * Q1x - rz
-    tmp66 = tmp14 * Q1y
-    tmp67 = tmp14 * Q1w
-    tmp68 = tmp12 * Q1y
-    tmp69 = tmp14 * Q1z
-    tmp70 = tmp20 * Q1x
-    tmp71 = -Q0y * Q1w - Q0z * Q1x + Q0w * Q1y + Q0x * Q1z - ry
-    tmp72 = tmp6 * Q1x
-    tmp73 = tmp10 * Q1z
-    tmp74 = tmp12 * Q1x
-    tmp75 = tmp20 * Q1y
-    tmp76 = Q0w * Q1w + Q0x * Q1x + Q0y * Q1y + Q0z * Q1z - rw
-    tmp77 = tmp29 * Q1y * Q1z
-    tmp78 = tmp25 * Q1y * Q1z
-    tmp79 = tmp13 * Q1z
-    tmp80 = tmp11 * Q1y
-    tmp81 = tmp20 * Q0w
-    tmp82 = tmp20 * Q1z
-    tmp83 = tmp14 * Q1x
+    tmp21 = q1y * q1y
+    tmp22 = tmp20 * q0z * q0z
+    tmp23 = q1z * q1z
+    tmp24 = tmp20 * q0x
+    tmp25 = tmp20 * q0y
+    tmp26 = tmp4 * q1x
+    tmp27 = tmp24 * q1y * q1z
+    tmp28 = tmp3 * q1y
+    tmp29 = tmp20 * q0z
+    tmp30 = tmp3 * q1z
+    tmp31 = tmp3 * q1w
+    tmp32 = tmp5 * q1y
+    tmp33 = tmp5 * q1z
+    tmp34 = tmp1 * q1z
+    tmp35 = tmp5 * q1x
+    tmp36 = tmp1 * q1x
+    tmp37 = tmp1 * q1w
+    tmp38 = tmp6 * q1y
+    tmp39 = tmp7 * q1y
+    tmp40 = tmp2 * q1z
+    tmp41 = tmp7 * q1x
+    tmp42 = tmp9 * q1z
+    tmp43 = tmp2 * q1y
+    tmp44 = tmp3 * q1x
+    tmp45 = tmp7 * q1w
+    tmp46 = tmp20 * q0w * q1y * q1z
+    tmp47 = tmp10 * q1x
+    tmp48 = tmp4 * q1z
+    tmp49 = tmp10 * q1y
+    tmp50 = tmp10 * q1w
+    tmp51 = tmp6 * q1z
+    tmp52 = tmp4 * q1y
+    tmp53 = tmp1 * q1y
+    tmp54 = tmp12 * q1z
+    # tmp55 = -q0x * q1w - q0y * q1z + q0w * q1x + q0z * q1y - rx
+    tmp56 = tmp20 * q1w
+    tmp57 = tmp11 * q1z
+    tmp58 = tmp9 * q1y
+    tmp59 = tmp7 * q1z
+    tmp60 = tmp11 * q1x
+    tmp61 = tmp8 * q1y
+    tmp62 = tmp13 * q1y
+    tmp63 = tmp11 * q1w
+    tmp64 = tmp8 * q1z
+    # tmp65 = -q0x * q1y - q0z * q1w + q0w * q1z + q0y * q1x - rz
+    tmp66 = tmp14 * q1y
+    tmp67 = tmp14 * q1w
+    tmp68 = tmp12 * q1y
+    tmp69 = tmp14 * q1z
+    tmp70 = tmp20 * q1x
+    # tmp71 = -q0y * q1w - q0z * q1x + q0w * q1y + q0x * q1z - ry
+    tmp72 = tmp6 * q1x
+    tmp73 = tmp10 * q1z
+    tmp74 = tmp12 * q1x
+    tmp75 = tmp20 * q1y
+    # tmp76 = q0w * q1w + q0x * q1x + q0y * q1y + q0z * q1z - rw
+    tmp77 = tmp29 * q1y * q1z
+    tmp78 = tmp25 * q1y * q1z
+    tmp79 = tmp13 * q1z
+    tmp80 = tmp11 * q1y
+    tmp81 = tmp20 * q0w
+    tmp82 = tmp20 * q1z
+    tmp83 = tmp14 * q1x
     c = tmp0
-    dQ0x = tmp35 + tmp46 + tmp51 + tmp58 + tmp68 + tmp79 + tmp24 * tmp16 + tmp24 * tmp18 + tmp24 * tmp21 + tmp24 * tmp23 + tmp56 * rx + tmp75 * rz - tmp35 - tmp46 - tmp51 - tmp58 - tmp68 - tmp79 - tmp70 * rw - tmp82 * ry
-    dQ0y = tmp32 + tmp40 + tmp48 + tmp61 + tmp74 + tmp77 + tmp25 * tmp16 + tmp25 * tmp18 + tmp25 * tmp21 + tmp25 * tmp23 + tmp56 * ry + tmp82 * rx - tmp32 - tmp40 - tmp48 - tmp61 - tmp74 - tmp77 - tmp70 * rz - tmp75 * rw
-    dQ0z = tmp33 + tmp43 + tmp52 + tmp64 + tmp72 + tmp78 + tmp29 * tmp16 + tmp29 * tmp18 + tmp29 * tmp21 + tmp29 * tmp23 + tmp56 * rz + tmp70 * ry - tmp33 - tmp43 - tmp52 - tmp64 - tmp72 - tmp78 - tmp75 * rx - tmp82 * rw
-    dQ0w = tmp26 + tmp27 + tmp38 + tmp42 + tmp54 + tmp62 + tmp81 * tmp16 + tmp81 * tmp18 + tmp81 * tmp21 + tmp81 * tmp23 - tmp26 - tmp27 - tmp38 - tmp42 - tmp54 - tmp62 - tmp56 * rw - tmp70 * rx - tmp75 * ry - tmp82 * rz
-    dQ1x = tmp31 + tmp34 + tmp39 + tmp49 + tmp57 + tmp67 + tmp15 * Q1x + tmp17 * Q1x + tmp19 * Q1x + tmp22 * Q1x + tmp29 * ry - tmp31 - tmp34 - tmp39 - tmp49 - tmp57 - tmp67 - tmp81 * rx - tmp24 * rw - tmp25 * rz
-    dQ1y = tmp30 + tmp37 + tmp41 + tmp47 + tmp63 + tmp69 + tmp15 * Q1y + tmp17 * Q1y + tmp19 * Q1y + tmp22 * Q1y + tmp24 * rz - tmp30 - tmp37 - tmp41 - tmp47 - tmp63 - tmp69 - tmp81 * ry - tmp25 * rw - tmp29 * rx
-    dQ1z = tmp28 + tmp36 + tmp45 + tmp50 + tmp60 + tmp66 + tmp15 * Q1z + tmp17 * Q1z + tmp19 * Q1z + tmp22 * Q1z + tmp25 * rx - tmp28 - tmp36 - tmp45 - tmp50 - tmp60 - tmp66 - tmp81 * rz - tmp24 * ry - tmp29 * rw
-    dQ1w = tmp44 + tmp53 + tmp59 + tmp73 + tmp80 + tmp83 + tmp15 * Q1w + tmp17 * Q1w + tmp19 * Q1w + tmp22 * Q1w + tmp24 * rx + tmp25 * ry + tmp29 * rz - tmp44 - tmp53 - tmp59 - tmp73 - tmp80 - tmp83 - tmp81 * rw
+    d_q0x = (tmp35 + tmp46 + tmp51 + tmp58 + tmp68 + tmp79 + tmp24 * tmp16 + tmp24 * tmp18 + tmp24
+             * tmp21 + tmp24 * tmp23 + tmp56 * rx + tmp75 * rz - tmp35 - tmp46 - tmp51 - tmp58
+             - tmp68 - tmp79 - tmp70 * rw - tmp82 * ry)
+    d_q0y = (tmp32 + tmp40 + tmp48 + tmp61 + tmp74 + tmp77 + tmp25 * tmp16 + tmp25 * tmp18 + tmp25
+             * tmp21 + tmp25 * tmp23 + tmp56 * ry + tmp82 * rx - tmp32 - tmp40 - tmp48 - tmp61
+             - tmp74 - tmp77 - tmp70 * rz - tmp75 * rw)
+    d_q0z = (tmp33 + tmp43 + tmp52 + tmp64 + tmp72 + tmp78 + tmp29 * tmp16 + tmp29 * tmp18
+             + tmp29
+             * tmp21 + tmp29 * tmp23 + tmp56 * rz + tmp70 * ry - tmp33 - tmp43 - tmp52
+             - tmp64 - tmp72 - tmp78 - tmp75 * rx - tmp82 * rw)
+    d_q0w = (tmp26 + tmp27 + tmp38 + tmp42 + tmp54 + tmp62 + tmp81 * tmp16 + tmp81 * tmp18 + tmp81
+             * tmp21 + tmp81 * tmp23 - tmp26 - tmp27 - tmp38 - tmp42 - tmp54 - tmp62 - tmp56 * rw
+             - tmp70 * rx - tmp75 * ry - tmp82 * rz)
+    d_q1x = (tmp31 + tmp34 + tmp39 + tmp49 + tmp57 + tmp67 + tmp15 * q1x + tmp17 * q1x + tmp19 * q1x
+             + tmp22 * q1x + tmp29 * ry - tmp31 - tmp34 - tmp39 - tmp49 - tmp57 - tmp67 - tmp81 * rx
+             - tmp24 * rw - tmp25 * rz)
+    d_q1y = (tmp30 + tmp37 + tmp41 + tmp47 + tmp63 + tmp69 + tmp15 * q1y + tmp17 * q1y + tmp19 * q1y
+             + tmp22 * q1y + tmp24 * rz - tmp30 - tmp37 - tmp41 - tmp47 - tmp63 - tmp69 - tmp81 * ry
+             - tmp25 * rw - tmp29 * rx)
+    d_q1z = (tmp28 + tmp36 + tmp45 + tmp50 + tmp60 + tmp66 + tmp15 * q1z + tmp17 * q1z + tmp19 * q1z
+             + tmp22 * q1z + tmp25 * rx - tmp28 - tmp36 - tmp45 - tmp50 - tmp60 - tmp66 - tmp81 * rz
+             - tmp24 * ry - tmp29 * rw)
+    d_q1w = (tmp44 + tmp53 + tmp59 + tmp73 + tmp80 + tmp83 + tmp15 * q1w + tmp17 * q1w + tmp19 * q1w
+             + tmp22 * q1w + tmp24 * rx + tmp25 * ry + tmp29 * rz - tmp44 - tmp53 - tmp59 - tmp73 -
+             tmp80 - tmp83 - tmp81 * rw)
+    return c, d_q0x, d_q0y, d_q0z, d_q0w, d_q1x, d_q1y, d_q1z, d_q1w
 
-    return c, dQ0x, dQ0y, dQ0z, dQ0w, dQ1x, dQ1y, dQ1z, dQ1w
 
-
-def quatSpring(Jb, r=None, k=None):
-    Q0 = Jb.parent.Q
-    Q1 = Jb.Q
-    w0 = Jb.parent.w
-    w1 = Jb.w
-    if (r == None):
-        r = Jb.rest.to_quaternion()
-    if (k == None):
-        k = Jb.k
-
-    ra = Q0.inverted() @ Q1
+def quat_spring(jb, r=None, k=None):
+    """
+    From my guess calculates spring quaternion.
+    """
+    q0 = jb.parent.q
+    q1 = jb.q
+    w0 = jb.parent.w
+    w1 = jb.w
+    if r is None:
+        r = jb.rest.to_quaternion()
+    if k is None:
+        k = jb.k
+    ra = q0.inverted() @ q1
     if ra.dot(r) < 0:
         r = -r
-
-    c, dQ0x, dQ0y, dQ0z, dQ0w, dQ1x, dQ1y, dQ1z, dQ1w = quatSpringGradient2(Q0, Q1, r)
-
-    div = dQ0x * dQ0x * w0 + \
-          dQ0y * dQ0y * w0 + \
-          dQ0z * dQ0z * w0 + \
-          dQ0w * dQ0w * w0 + \
-          dQ1x * dQ1x * w1 + \
-          dQ1y * dQ1y * w1 + \
-          dQ1z * dQ1z * w1 + \
-          dQ1w * dQ1w * w1
-
-    if (div > 1e-8):
+    c, d_q0x, d_q0y, d_q0z, d_q0w, d_q1x, d_q1y, d_q1z, d_q1w = quat_spring_gradient2(q0, q1, r)
+    div = d_q0x * d_q0x * w0 + d_q0y * d_q0y * w0 + d_q0z * d_q0z * w0 + d_q0w * d_q0w * w0 + d_q1x * d_q1x * w1 + d_q1y * d_q1y * w1 + d_q1z * d_q1z * w1 + d_q1w * d_q1w * w1
+    if div > 1e-8:
         s = -c / div
-        if (w0 > 0.0):
-            Q0.x += dQ0x * s * w0 * k
-            Q0.y += dQ0y * s * w0 * k
-            Q0.z += dQ0z * s * w0 * k
-            Q0.w += dQ0w * s * w0 * k
-            Jb.parent.Q = Q0.normalized()
+        if w0 > 0.0:
+            q0.x += d_q0x * s * w0 * k
+            q0.y += d_q0y * s * w0 * k
+            q0.z += d_q0z * s * w0 * k
+            q0.w += d_q0w * s * w0 * k
+            jb.parent.q = q0.normalized()
+        q1.x += d_q1x * s * w1 * k
+        q1.y += d_q1y * s * w1 * k
+        q1.z += d_q1z * s * w1 * k
+        q1.w += d_q1w * s * w1 * k
+        jb.q = q1.normalized()
 
-        Q1.x += dQ1x * s * w1 * k
-        Q1.y += dQ1y * s * w1 * k
-        Q1.z += dQ1z * s * w1 * k
-        Q1.w += dQ1w * s * w1 * k
-        Jb.Q = Q1.normalized()
 
-
-def step(scene):
-    global iters
-    global dt
-    global ctx
-    global cc
-
-    dt = 1.0 / (scene.render.fps / scene.render.fps_base)
-
+def step(scene, dt):
+    """
+    One simulation step with delta time (in seconds).
+    """
+    dt /= scene.jiggle.sub_steps
     for o in scene.objects:
         if o.type == 'ARMATURE' and o.data.jiggle.enabled:
-
             arm = o.data
             ow = o.matrix_world.copy()
-            scale = maxis(ow, 0).length
-
-            iow = ow.inverted()
-            iow3 = ow.to_3x3().inverted()
-
-            i = 0
-            arm.jiggle.time_acc += dt * arm.jiggle.fps
-            while arm.jiggle.time_acc > 1:
-                arm.jiggle.time_acc -= 1
-
+            scale = m_axis(ow, 0).length
+            # iow = ow.inverted()
+            # iow3 = ow.to_3x3().inverted()
+            # i = 0
+            frames = max(abs(int(dt * arm.jiggle.fps)), 1)  # Amount of frames simulation
+            # should go for.
+            while frames > 0:
+                frames -= 1
                 bl = []
-                wt = []
-
+                # wt = []
                 for b in o.pose.bones:
-                    if (b.parent == None):
-                        propB(ow, b, bl, None)
-                hooks = []
-
+                    if b.parent is None:
+                        prop_b(ow, b, bl, None)
+                # hooks = []
                 bl2 = []
                 for wb in bl:
                     b = wb.b
                     wb.rest_w = b.bone.matrix_local.copy()
-                    saxis(wb.rest_w, 3, maxis(wb.rest_w, 3) * scale)
-                    saxis(wb.rest_w, 3,
-                          maxis(wb.rest_w, 3) + maxis(wb.rest_w, 1) * b.bone.length * 0.5 * scale)
-
+                    s_axis(wb.rest_w, 3, m_axis(wb.rest_w, 3) * scale)
+                    s_axis(wb.rest_w, 3,
+                           m_axis(wb.rest_w, 3) + m_axis(wb.rest_w,
+                                                         1) * b.bone.length * 0.5 * scale)
                 for wb in bl:
                     b = wb.b
-                    crest = b
-
+                    # crest = b
                     wb.restW = b.bone.matrix_local.copy() * scale
-                    saxis(wb.restW, 3, maxis(wb.restW, 3) * scale)
-
-                    M = wb.M
-                    if (b.bone.jiggle_enabled):
-                        Jb = b.bone
-                        wb.X = wb.P = Jb.jiggle_P
-                        wb.R = wb.Q = Jb.jiggle_R
+                    s_axis(wb.restW, 3, m_axis(wb.restW, 3) * scale)
+                    m = wb.m
+                    if b.bone.jiggle_enabled:
+                        wb.x = wb.p = b.bone.jiggle_P
+                        wb.r = wb.q = b.bone.jiggle_R
                         wb.rest = wb.rest_w
-                        if (b.parent != None):
+                        if b.parent is not None:
                             wb.rest = wb.parent.rest_w.inverted() @ wb.rest_w
-
                         wb.rest_base = b.bone.matrix_local
-                        if (b.parent != None):
+                        if b.parent is not None:
                             wb.rest_base = b.parent.bone.matrix_local.inverted() @ wb.rest_base
-
                         wb.rest_p = wb.parent.rest_w.inverted() @ (
-                                maxis(wb.rest_w, 3) - maxis(wb.rest_w,
-                                                            1) * b.bone.length * 0.5 * scale)  # mpos(wb.rest)
-
+                                m_axis(wb.rest_w, 3) - m_axis(wb.rest_w,
+                                                              1) * b.bone.length * 0.5 * scale)  # mpos(wb.rest)
                         wb.l = b.bone.length * scale
-                        wb.w = 1.0 / Jb.jiggle_mass
-                        wb.k = 1 - pow(1 - Jb.jiggle_Ks, 1 / scene.jiggle.iterations)
-                        Jb.jiggle_V *= 1.0 - Jb.jiggle_Kld
-                        Jb.jiggle_V += scene.gravity * dt
-                        Jb.jiggle_W *= 1.0 - Jb.jiggle_Kd
+                        wb.w = 1.0 / b.bone.jiggle_mass
+                        wb.k = 1 - pow(1 - b.bone.jiggle_Ks, 1 / scene.jiggle.iterations)
+                        b.bone.jiggle_V *= 1.0 - b.bone.jiggle_Kld
+                        b.bone.jiggle_V += scene.gravity * dt
+                        b.bone.jiggle_W *= 1.0 - b.bone.jiggle_Kd
                         qv = Quaternion()
-                        qv.x = Jb.jiggle_W[0]
-                        qv.y = Jb.jiggle_W[1]
-                        qv.z = Jb.jiggle_W[2]
+                        qv.x = b.bone.jiggle_W[0]
+                        qv.y = b.bone.jiggle_W[1]
+                        qv.z = b.bone.jiggle_W[2]
                         qv.w = 0
-
-                        wb.Q = qadd(wb.Q, qv @ wb.Q * dt * 0.5).normalized()
-
-                        wb.P = wb.X + Jb.jiggle_V * dt
-                        wb.computeI()
-
+                        wb.q = q_add(wb.q, qv @ wb.q * dt * 0.5).normalized()
+                        wb.p = wb.x + b.bone.jiggle_V * dt
+                        wb.compute_i()
                         # control object/bone constraint
-                        if (Jb.jiggle_control_object in bpy.data.objects):
-
-                            target_object = bpy.data.objects[Jb.jiggle_control_object]
-
+                        if b.bone.jiggle_control_object in bpy.data.objects:
+                            target_object = bpy.data.objects[b.bone.jiggle_control_object]
                             target_matrix = target_object.matrix_local
-
-                            if (
-                                    target_object.type == 'ARMATURE' and Jb.jiggle_control_bone in target_object.pose.bones):
-                                cb = target_object.pose.bones[Jb.jiggle_control_bone]
+                            if target_object.type == 'ARMATURE' and b.bone.jiggle_control_bone in target_object.pose.bones:
+                                cb = target_object.pose.bones[b.bone.jiggle_control_bone]
                                 target_matrix = cb.matrix
-                                if (cb.parent != None):
+                                if cb.parent is not None:
                                     target_matrix = cb.parent.matrix.inverted() @ target_matrix
-
-                            wb.cQ = target_matrix.to_quaternion().normalized()
-                            wb.Kc = 1 - pow(1 - Jb.jiggle_control, 1.0 / scene.jiggle.iterations)
-
+                            wb.c_q = target_matrix.to_quaternion().normalized()
+                            wb.k_c = 1 - pow(1 - b.bone.jiggle_control,
+                                             1.0 / scene.jiggle.iterations)
                         bl2.append(wb)
                     else:
                         wb.w = 0
-                        wb.X = wb.P = mpos(M) + maxis(M, 1) * b.bone.length * 0.5
-                        wb.R = wb.Q = M.to_quaternion().normalized()
-
-                        M = ow @ b.matrix
-
-                        Jb = b.bone
-                        setq(Jb.jiggle_R, M.to_quaternion().normalized())
-                        Jb.jiggle_V = Vector((0, 0, 0))
-                        Jb.jiggle_P = mpos(M) + maxis(M, 1) * b.bone.length * 0.5
-                        Jb.jiggle_W = Vector((0, 0, 0))
-
+                        wb.x = wb.p = m_pos(m) + m_axis(m, 1) * b.bone.length * 0.5
+                        wb.r = wb.q = m.to_quaternion().normalized()
+                        m = ow @ b.matrix
+                        setq(b.bone.jiggle_R, m.to_quaternion().normalized())
+                        b.bone.jiggle_V = Vector((0, 0, 0))
+                        b.bone.jiggle_P = m_pos(m) + m_axis(m, 1) * b.bone.length * 0.5
+                        b.bone.jiggle_W = Vector((0, 0, 0))
                 for i in range(scene.jiggle.iterations):
                     # parent constraint
                     for wb in bl2:
                         b = wb.b
-                        if (b.parent == None):
+                        if b.parent is None:
                             continue
-                        Jb = b.bone
-                        locSpring(wb)
+                        loc_spring(wb)
                         # spring constraint
                     for wb in bl2:
                         b = wb.b
-                        if (b.parent == None):
+                        if b.parent is None:
                             continue
-                        Jb = b.bone
-                        quatSpring(wb,
-                                   Jb.jiggle_rest if Jb.jiggle_use_custom_rest else wb.rest.to_quaternion().normalized())
-                        if (wb.cQ != None):
-                            quatSpring(wb, wb.cQ, wb.Kc)
-
+                        quat_spring(wb,
+                                    b.bone.jiggle_rest if b.bone.jiggle_use_custom_rest else wb.rest.to_quaternion().normalized())
+                        if wb.c_q is not None:
+                            quat_spring(wb, wb.c_q, wb.k_c)
                 for wb in bl2:
                     b = wb.b
-                    Jb = b.bone
-
-                    wb.Q = wb.Q.normalized()
-                    m = wb.Q.to_matrix()
+                    wb.q = wb.q.normalized()
+                    m = wb.q.to_matrix()
                     for i in range(3):
                         for j in range(3):
-                            wb.M[i][j] = m[i][j] * scale
-                    wb.M[3][3] = 1
-
-                    Jb.jiggle_V = (wb.P - wb.X) / dt
-                    Jb.jiggle_P = wb.P.copy()
-                    qv = wb.Q @ Jb.jiggle_R.conjugated()
-                    Jb.jiggle_W = Vector((qv.x, qv.y, qv.z)) * (2 / dt)
-                    Jb.jiggle_R = wb.Q
-
-                    cp = Jb.jiggle_P - maxis(wb.M, 1) * b.bone.length * 0.5
-
-                    wb.M[0][3] = cp[0]
-                    wb.M[1][3] = cp[1]
-                    wb.M[2][3] = cp[2]
-
+                            wb.m[i][j] = m[i][j] * scale
+                    wb.m[3][3] = 1
+                    b.bone.jiggle_V = (wb.p - wb.x) / dt
+                    b.bone.jiggle_P = wb.p.copy()
+                    qv = wb.q @ b.bone.jiggle_R.conjugated()
+                    b.bone.jiggle_W = Vector((qv.x, qv.y, qv.z)) * (2 / dt)
+                    b.bone.jiggle_R = wb.q
+                    cp = b.bone.jiggle_P - m_axis(wb.m, 1) * b.bone.length * 0.5
+                    wb.m[0][3] = cp[0]
+                    wb.m[1][3] = cp[1]
+                    wb.m[2][3] = cp[2]
                 for wb in bl2:
                     b = wb.b
-                    pM = ow
-                    if (b.parent != None):
-                        pM = wb.parent.M
-                    mb = (pM @ wb.rest_base).inverted() @ wb.M
-
+                    p_m = ow
+                    if b.parent is not None:
+                        p_m = wb.parent.m
+                    mb = (p_m @ wb.rest_base).inverted() @ wb.m
                     b.matrix_basis = mb
 
-    scene.jiggle.last_frame += 1
-
 
 @persistent
-def update_post(scene, tm=False):
-    global iters
-    global dt
-    global ctx
-    global cc
+def frame_change_post(scene):
+    """
+    Called when timeline frame was changed after all Blender's updates.
+    """
+    step(scene, scene.render.fps_base / scene.render.fps)
 
 
-# backing = False
-@persistent
-def update(scene, tm=False):
-    global iters
-    global dt
-    global ctx
-    global cc
-    dt = 1.0 / (scene.render.fps / scene.render.fps_base * scene.jiggle.sub_steps)
-    if not (scene.jiggle.test_mode or tm):  # or (backing and not tm)):
+def bake(context, bake_all: bool):
+    """
+    Baking selected or all jiggle bones.
+    """
+    scene = context.scene
+    if not scene.jiggle.test_mode:
+        print("Can't bake jiggle bone transforms with scene jiggle disabled.")
         return
-    step(scene)
-
-
-def bake(bake_all):
-    print("baking " + ("all" if bake_all else "selected") + "...")
-    global ctx
-    # global backing
-
-    scene = bpy.context.scene
+    print("Baking " + ("all" if bake_all else "selected") + " jiggle bones...")
     scene.frame_set(scene.frame_start)
-
+    jiggle_armatures = []  # Keeping the list of Armatures that have at least one jiggle bone.
     for o in scene.objects:
-        if o.type == 'ARMATURE' and (o.select_get() or bake_all):
-
-            arm = o.data
-            ow = o.matrix_world
-            scale = maxis(ow, 0).length
-            iow = ow.inverted()
-            i = 0
-            for b in o.pose.bones:
-                b.bone.select = (b.bone.select or bake_all) and b.bone.jiggle_enabled
-                if b.bone.select or bake_all and b.bone.jiggle_enabled:
-                    M = ow @ b.matrix
-
-                    Jb = b.bone
-                    setq(Jb.jiggle_R, M.to_quaternion().normalized())
-                    Jb.jiggle_V = Vector((0, 0, 0))
-                    Jb.jiggle_P = mpos(M)
-                    Jb.jiggle_W = Vector((0, 0, 0))
-
-    ltm = scene.jiggle.test_mode
-    scene.jiggle.test_mode = False
-    for i in range(scene.frame_start, scene.frame_end):
+        if o.type != 'ARMATURE' or not o.data.jiggle.enabled:
+            continue
+        if not bake_all and not o.select_get():
+            continue
+        # arm = o.data
+        ow = o.matrix_world
+        # scale = maxis(ow, 0).length
+        # iow = ow.inverted()
+        i = 0
+        has_any_jiggle_bone = False
+        selected_bones = []
+        for b in o.pose.bones:
+            if b.bone.select:
+                selected_bones.append(b)
+            if not b.bone.jiggle_enabled:
+                b.bone.select = False
+                continue
+            if not bake_all and not b.bone.select:
+                continue
+            m = ow @ b.matrix
+            setq(b.bone.jiggle_R, m.to_quaternion().normalized())
+            b.bone.jiggle_V = Vector((0, 0, 0))
+            b.bone.jiggle_P = m_pos(m)
+            b.bone.jiggle_W = Vector((0, 0, 0))
+            b.bone.select = True
+            has_any_jiggle_bone = True
+        if has_any_jiggle_bone:
+            jiggle_armatures.append((o, selected_bones))
+    if len(jiggle_armatures) < 1:
+        if bake_all:
+            print("No jiggle bones were found in this Scene.")
+        else:
+            print("No jiggle bones are selected.")
+        for jiggle_armature in jiggle_armatures:  # Restoring selected bones to each Armature.
+            for b in jiggle_armature[0].pose.bones:
+                b.bone.select = b in jiggle_armature[1]
+        return
+    previous_active = context.view_layer.objects.active
+    for i in range(scene.frame_start, scene.frame_end + 1):
+        print("Baking frame: ", str(i) + ".")
         scene.frame_set(i)
-        update(scene, tm=True)
-        print("frame: ", i)
-        for o in scene.objects:
-            if (o.select_get() or bake_all) and o.type == 'ARMATURE':
-                bpy.context.view_layer.objects.active = o
-                m = o.mode == 'POSE'
+        for jiggle_armature in jiggle_armatures:
+            context.view_layer.objects.active = jiggle_armature[0]
+            m = jiggle_armature[0].mode == 'POSE'
+            if not m:
+                bpy.ops.object.posemode_toggle()
+            bpy.ops.anim.keyframe_insert_menu(type='LocRotScale')
+            if bake_all or not m:
+                bpy.ops.object.posemode_toggle()
+    context.view_layer.objects.active = previous_active
+    for jiggle_armature in jiggle_armatures:
+        for b in jiggle_armature[0].pose.bones:
+            b.bone.select = b in jiggle_armature[1]  # Restoring selected bones to each
+            # baked Armature.
+        for b in jiggle_armature[1]:  # Disabling jiggle on all baked jiggle bones.
+            b.bone.jiggle_enabled = False
+        if bake_all:  # Disabling jiggle on all baked Armatures if baked all.
+            jiggle_armature[0].data.jiggle.enabled = False
 
-                if not m:
-                    bpy.ops.object.posemode_toggle()
 
-                bpy.ops.anim.keyframe_insert_menu(type='LocRotScale')
-
-                if not m:
-                    bpy.ops.object.posemode_toggle()
-    scene.jiggle.test_mode = ltm
-
-
-class JARM_OT_bake(bpy.types.Operator):
+class JARMOTBake(bpy.types.Operator):
+    """
+    Bake jiggle bone values to current action
+    """
     a: BoolProperty()
     bl_idname = "jiggle.bake"
     bl_label = "Bake Animation"
 
     def execute(self, context):
-        bake(self.a)
+        bake(context, self.a)
         return {'FINISHED'}
 
 
-classes = (
-    JARM_PT_armature,
-    JiggleScene,
-    JARM_PT_scene,
-    JiggleArmature,
-    JARM_OT_bake,
-    JARM_OT_set_rest,
-    JARM_OT_reset,
-    JARM_PT_bone
-)
+classes = (JARMPTArmature, JiggleScene, JARMPTScene, JiggleArmature, JARMOTBake, JARMOTSetRest,
+           JARMOTReset, JARMPTBone)
 
 
 def register():
+    """
+    Function for registering addon.
+    """
     for cls in classes:
         register_class(cls)
-
-    bpy.app.handlers.frame_change_post.append(update)
-
+    bpy.app.handlers.frame_change_post.append(frame_change_post)
     bpy.types.Scene.jiggle = bpy.props.PointerProperty(type=JiggleScene)
-
     bpy.types.Armature.jiggle = bpy.props.PointerProperty(type=JiggleArmature,
                                                           options={'ANIMATABLE'})
-
     bpy.types.Bone.jiggle_enabled = BoolProperty(default=False, update=funp("jiggle_enabled"))
-    bpy.types.Bone.jiggle_Kld = FloatProperty(name="linear damping", min=0.0, max=1.0, default=0.01,
+    bpy.types.Bone.jiggle_Kld = FloatProperty(name="Linear damping", min=0.0, max=1.0, default=0.01,
                                               update=funp("jiggle_Kld"))
-    bpy.types.Bone.jiggle_Kd = FloatProperty(name="angular damping", min=0.0, max=1.0, default=0.01,
+    bpy.types.Bone.jiggle_Kd = FloatProperty(name="Angular damping", min=0.0, max=1.0, default=0.01,
                                              update=funp("jiggle_Kd"))
-    bpy.types.Bone.jiggle_Ks = FloatProperty(name="stiffness", min=0.0, max=1.0, default=0.8,
+    bpy.types.Bone.jiggle_Ks = FloatProperty(name="Stiffness", min=0.0, max=1.0, default=0.8,
                                              update=funp("jiggle_Ks"))
-    bpy.types.Bone.jiggle_mass = FloatProperty(name="mass", min=0.0001, default=1.0,
+    bpy.types.Bone.jiggle_mass = FloatProperty(name="Mass", min=0.0001, default=1.0,
                                                update=funp("jiggle_mass"))
-    bpy.types.Bone.jiggle_R = FloatVectorProperty(name="rotation", size=4, subtype='QUATERNION')
+    bpy.types.Bone.jiggle_R = FloatVectorProperty(name="Rotation", size=4, subtype='QUATERNION')
     bpy.types.Bone.jiggle_W = FloatVectorProperty(size=3, subtype='XYZ')  # angular velocity
     bpy.types.Bone.jiggle_P = FloatVectorProperty(size=3, subtype='XYZ')
     bpy.types.Bone.jiggle_V = FloatVectorProperty(size=3, subtype='XYZ')  # linear velocity, ok?
-
     bpy.types.Bone.jiggle_use_custom_rest = BoolProperty(default=False, name="Use Custom Rest Pose",
                                                          update=funp("jiggle_use_custom_rest"))
-
-    bpy.types.Bone.jiggle_rest = FloatVectorProperty(name="rotation", size=4, subtype='QUATERNION')
-
-    bpy.types.Bone.jiggle_control = FloatProperty(name="control", min=0.0, max=1.0, default=1,
+    bpy.types.Bone.jiggle_rest = FloatVectorProperty(name="Rotation", size=4, subtype='QUATERNION')
+    bpy.types.Bone.jiggle_control = FloatProperty(name="Control", min=0.0, max=1.0, default=1,
                                                   update=funp("jiggle_control"))
-    bpy.types.Bone.jiggle_control_object = bpy.props.StringProperty(name="control object")
-    bpy.types.Bone.jiggle_control_bone = bpy.props.StringProperty(name="control bone")
+    bpy.types.Bone.jiggle_control_object = bpy.props.StringProperty(name="Control Object")
+    bpy.types.Bone.jiggle_control_bone = bpy.props.StringProperty(name="Control Bone")
 
 
 def unregister():
+    """
+    Function for unregistering addon.
+    """
     for cls in reversed(classes):
         unregister_class(cls)
-    bpy.app.handlers.frame_change_post.remove(update)
+    bpy.app.handlers.frame_change_post.remove(frame_change_post)
 
 
 if __name__ == '__main__':

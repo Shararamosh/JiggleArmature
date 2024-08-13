@@ -45,7 +45,7 @@ from bpy.utils import register_class, unregister_class
 bl_info = {
     "name": "Jiggle Armature",
     "author": "Simón Flores, Shararamosh",
-    "version": (2, 4, 0),
+    "version": (2, 4, 1),
     "blender": (2, 80, 0),
     "description": "Jiggle Bone Animation Tool",
     "warning": "",
@@ -54,9 +54,20 @@ bl_info = {
 }
 
 
+def show_popup_menu(context: bpy.types.Context, text: str, title: str, icon: str):
+    """
+    Triggering popup menu in Blender.
+    """
+
+    def draw(self: bpy.types.UIPopupMenu, _):
+        self.layout.label(text=text)
+
+    context.window_manager.popup_menu(draw, title=title, icon=icon)
+
+
 class JiggleArmature(bpy.types.PropertyGroup):
     """
-    Class containing Armature jiggle property.
+    Class containing Jiggle Armature property.
     """
     enabled: BoolProperty(name="Enabled", default=True)
     fps: FloatProperty(name="Simulation FPS", default=24)
@@ -64,7 +75,7 @@ class JiggleArmature(bpy.types.PropertyGroup):
 
 class JiggleScene(bpy.types.PropertyGroup):
     """
-    Class containing Scene jiggle property.
+    Class containing Jiggle Scene property.
     """
     test_mode: BoolProperty(default=False)
     sub_steps: IntProperty(name="Sub-steps", min=1, default=2)
@@ -73,7 +84,7 @@ class JiggleScene(bpy.types.PropertyGroup):
 
 class JARMPTArmature(bpy.types.Panel):
     """
-    Class containing Armature jiggle panel.
+    Class containing Jiggle Armature panel.
     """
     bl_idname = "ARMATURE_PT_jiggle"
     bl_label = "Jiggle Armature"
@@ -84,15 +95,21 @@ class JARMPTArmature(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context: bpy.types.Context):
+        """
+        Checking if Jiggle Armature panel can be active.
+        """
         return context.object is not None and context.object.type == 'ARMATURE'
 
     def draw_header(self, context: bpy.types.Context):
         """
-        Function for drawing header of Armature jiggle panel.
+        Drawing header of Armature jiggle panel.
         """
         self.layout.prop(context.object.data.jiggle, "enabled", text="")
 
     def draw(self, context: bpy.types.Context):
+        """
+        Drawing body of Armature Jiggle panel.
+        """
         col = self.layout.column()
         self.layout.enabled = context.scene.jiggle.test_mode and context.object.data.jiggle.enabled
         if not context.scene.jiggle.test_mode:
@@ -102,7 +119,7 @@ class JARMPTArmature(bpy.types.Panel):
 
 class JARMPTScene(bpy.types.Panel):
     """
-    Class containing Scene jiggle panel.
+    Class containing Jiggle Scene panel.
     """
     bl_idname = "SCENE_PT_jiggle"
     bl_label = "Jiggle Scene"
@@ -113,13 +130,13 @@ class JARMPTScene(bpy.types.Panel):
 
     def draw_header(self, context: bpy.types.Context):
         """
-        Function for drawing header of Scene jiggle panel.
+        Drawing header of Jiggle Scene panel.
         """
         self.layout.prop(context.scene.jiggle, "test_mode", text="")
 
     def draw(self, context: bpy.types.Context):
         """
-        Function for drawing body of Scene jiggle panel.
+        Drawing body of Jiggle Scene panel.
         """
         col = self.layout.column()
         self.layout.enabled = context.scene.jiggle.test_mode
@@ -130,7 +147,7 @@ class JARMPTScene(bpy.types.Panel):
 
 def fun_p(prop):
     """
-    A function that changes jiggle bone property values for all selected jiggle bones.
+    Changing Jiggle Bone property values for all selected Jiggle Bones.
     """
     in_f = False
 
@@ -156,9 +173,9 @@ def fun_p(prop):
     return f
 
 
-def set_q(om, m):
+def set_q(om: FloatVectorProperty(), m: Quaternion):
     """
-    A function that copies 4 indexed elements of mutable object into another one.
+    Copying Quaternion values to FloatVectorProperty.
     """
     for i in range(4):
         om[i] = m[i]
@@ -166,24 +183,25 @@ def set_q(om, m):
 
 def reset_jigglebone_state(context: bpy.types.Context):
     """
-    Static function that resets current jiggle bone values.
+    Resetting current Jiggle Bone transforms.
     """
     scene = context.scene
     for o in scene.objects:
-        if o.select_get() and o.type == 'ARMATURE':
-            ow = o.matrix_world
-            for b in o.pose.bones:
-                if b.bone.select:
-                    m = ow @ b.matrix
-                    set_q(b.bone.jiggle_R, m.to_quaternion().normalized())
-                    b.bone.jiggle_V = Vector((0, 0, 0))
-                    b.bone.jiggle_P = m_pos(m) + m_axis(m, 1) * b.bone.length * 0.5
-                    b.bone.jiggle_W = Vector((0, 0, 0))
+        if o.type != 'ARMATURE' or not o.select_get():
+            continue
+        ow = o.matrix_world
+        for b in o.pose.bones:
+            if b.bone.select:
+                m = ow @ b.matrix
+                set_q(b.bone.jiggle_R, m.to_quaternion().normalized())
+                b.bone.jiggle_V = Vector((0, 0, 0))
+                b.bone.jiggle_P = m_pos(m) + m_axis(m, 1) * b.bone.length * 0.5
+                b.bone.jiggle_W = Vector((0, 0, 0))
 
 
 class JARMOTReset(bpy.types.Operator):
     """
-    Resets current jiggle bone values
+    Resets current Jiggle Bone transforms
     """
     bl_idname = "jiggle.reset"
     bl_label = "Reset Jiggle State"
@@ -199,21 +217,22 @@ class JARMOTReset(bpy.types.Operator):
 
 def set_jigglebone_rest_state(context: bpy.types.Context):
     """
-    Static function that sets current bone values as jiggle bone rest pose.
+    Setting current Bone transforms as Jiggle Bone Rest Pose.
     """
     scene = context.scene
     for o in scene.objects:
-        if o.type == 'ARMATURE' and o.select_get():
-            for b in o.pose.bones:
-                if b.bone.select:
-                    m = b.parent.matrix.inverted() @ b.matrix
-                    set_q(b.bone.jiggle_rest, m.to_quaternion().normalized())
-                    b.bone.jiggle_use_custom_rest = True
+        if o.type != 'ARMATURE' or not o.select_get():
+            continue
+        for b in o.pose.bones:
+            if b.bone.select:
+                m = b.parent.matrix.inverted() @ b.matrix
+                set_q(b.bone.jiggle_rest, m.to_quaternion().normalized())
+                b.bone.jiggle_use_custom_rest = True
 
 
 class JARMOTSetRest(bpy.types.Operator):
     """
-    Sets current bone values as jiggle bone rest pose
+    Sets current Bone transforms as Jiggle Bone Rest Pose
     """
     bl_idname = "jiggle.set_rest"
     bl_label = "Set Rest Pose"
@@ -221,7 +240,7 @@ class JARMOTSetRest(bpy.types.Operator):
     # noinspection PyMethodMayBeStatic
     def execute(self, context: bpy.types.Context):
         """
-        Function that sets current bone values as jiggle bone rest pose.
+        Setting current Bone transforms as Jiggle Bone Rest Pose.
         """
         set_jigglebone_rest_state(context)
         return {'FINISHED'}
@@ -229,7 +248,7 @@ class JARMOTSetRest(bpy.types.Operator):
 
 class JARMPTBone(bpy.types.Panel):
     """
-    Class containing Bone jiggle panel.
+    Class containing Jiggle Bone panel.
     """
     bl_idname = "BONE_PT_jiggle_bone"
     bl_label = "Jiggle Bone"
@@ -240,6 +259,9 @@ class JARMPTBone(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context: bpy.types.Context):
+        """
+        Checking if Jiggle Bone panel can be active.
+        """
         if context.object is None:
             return False
         if context.object.type != 'ARMATURE':
@@ -247,10 +269,16 @@ class JARMPTBone(bpy.types.Panel):
         return context.bone is not None
 
     def draw_header(self, context: bpy.types.Context):
+        """
+        Drawing header of Jiggle Bone panel.
+        """
         bon = context.bone
         self.layout.prop(bon, "jiggle_enabled", text="")
 
     def draw(self, context: bpy.types.Context):
+        """
+        Drawing body of Jiggle Bone panel.
+        """
         col = self.layout.column()
         armature = context.object.data
         self.layout.enabled = (context.scene.jiggle.test_mode and armature.jiggle.enabled
@@ -283,9 +311,9 @@ class JARMPTBone(bpy.types.Panel):
 def compute_matrix_k(connector: Vector, inv_mass: float, x: Vector,
                      inertia_inverse_w: Matrix) -> Matrix:
     """
-    Function that calculates K matrix.
+    Calculating k Matrix.
     """
-    k = Matrix().to_3x3()*0.0
+    k = Matrix().to_3x3() * 0.0
     if inv_mass == 0.0:
         return k
     use_new_implementation = True
@@ -330,7 +358,7 @@ def compute_matrix_k(connector: Vector, inv_mass: float, x: Vector,
 
 class JB:
     """
-    Class containing jiggle bone properties.
+    Class containing Jiggle Bone properties.
     """
 
     def __init__(self, b: bpy.types.PoseBone, m: Matrix, p: Self | None):
@@ -338,13 +366,13 @@ class JB:
         self.length = b.bone.length * m_axis(m, 0).length
         self.b = b
         self.parent = p
-        self.rest = Matrix().to_3x3()*0.0
-        self.rest_w = Matrix().to_3x3()*0.0
+        self.rest = Matrix().to_3x3() * 0.0
+        self.rest_w = Matrix().to_3x3() * 0.0
         self.w = 0.0
         self.k_c = 0.0
         self.c_q = None
         self.x = Vector((0, 0, 0))
-        self.p = Matrix().to_3x3()*0.0
+        self.p = Matrix().to_3x3() * 0.0
         self.r = Quaternion(Vector((0, 0, 0, 0)))
         self.q = Quaternion(Vector((0, 0, 0, 0)))
         self.i_i = Matrix.Identity(3)  # first naive approach
@@ -355,13 +383,13 @@ class JB:
 
     def compute_i(self):
         """
-        No clue what this function does.
+        Calculating i_i Matrix.
         """
         self.i_i = Matrix.Identity(3) * (self.w / (self.b_len * self.b_len) * 2.5)
 
     def update_iw(self):
         """
-        No clue what this function does.
+        Calculating i_iw Matrix.
         """
         rot = self.q.to_matrix()
         self.i_iw = rot @ self.i_i
@@ -370,7 +398,7 @@ class JB:
 
 def prop_b(ow: Matrix, b: bpy.types.PoseBone, jb_list: list[JB], p: JB | None):
     """
-    Creates new JB object for current PoseBone and its children and appends them to list.
+    Creating new JB object for current PoseBone and its children and appending them to list.
     """
     j = JB(b, ow @ b.matrix, p)
     jb_list.append(j)
@@ -380,14 +408,14 @@ def prop_b(ow: Matrix, b: bpy.types.PoseBone, jb_list: list[JB], p: JB | None):
 
 def m_axis(m: Matrix, i: int):
     """
-    Generates vector from one of matrix axes.
+    Generating Vector of 3 elements from Matrix row.
     """
     return Vector((m[0][i], m[1][i], m[2][i]))
 
 
 def s_axis(m: Matrix, i, v: Vector):
     """
-    Generates one of matrix axes from vector.
+    Generating first 3 Matrix rows from Vector.
     """
     m[0][i] = v[0]
     m[1][i] = v[1]
@@ -396,14 +424,14 @@ def s_axis(m: Matrix, i, v: Vector):
 
 def m_pos(m: Matrix):
     """
-    Generates vector from last matrix axis.
+    Generating Vector from 4th Matrix row.
     """
     return m_axis(m, 3)
 
 
 def ort(m: Matrix):
     """
-    Generates orthogonal matrix from existing one.
+    Generating orthogonal Matrix.
     """
     a = m[0]
     b = m[1]
@@ -420,14 +448,14 @@ def ort(m: Matrix):
 
 def q_add(a: Quaternion, b: Quaternion):
     """
-    Generates sum of 2 quaternions.
+    Calculating sum of 2 Quaternions.
     """
     return Quaternion(Vector((a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3])))
 
 
 def q_add2(a: Quaternion, b: Quaternion):
     """
-    Generates sum of 2 quaternions and applies values to first input Quaternion.
+    Adding second Quaternion to first one.
     """
     a.x += b.x
     a.y += b.y
@@ -437,7 +465,7 @@ def q_add2(a: Quaternion, b: Quaternion):
 
 def norm_r(m: Matrix):
     """
-    Looks like normalizing matrix.
+    Normalizing Matrix.
     """
     for i in range(3):
         s_axis(m, i, m_axis(m, i).normalized())
@@ -445,7 +473,7 @@ def norm_r(m: Matrix):
 
 def loc_spring(jb: JB):
     """
-    Looks like generating spring location.
+    Calculating Jiggle Bone spring Quaternion (1).
     """
     w0 = jb.parent.w
     w1 = jb.w
@@ -480,7 +508,7 @@ def loc_spring(jb: JB):
 # Shara-add: Done.
 def quat_spring_gradient2(q0: Quaternion, q1: Quaternion, r: Quaternion):
     """
-    Returns the gradient of C = |Q0*r - Q1|^2 wrt Q0 and Q1.
+    Returning the gradient of C = |q0*r - q1|^2 wrt q0 and q1.
     Heavily optimized by Shararamosh.
     """
     t1 = (((-(q0.x * q1.w) - (q0.y * q1.z)) + (q0.w * q1.x)) + (q0.z * q1.y)) - r.x
@@ -520,7 +548,7 @@ def quat_spring_gradient2(q0: Quaternion, q1: Quaternion, r: Quaternion):
 
 def quat_spring(jb: JB, r: Quaternion = None, k: float | None = None):
     """
-    From my guess calculates spring quaternion.
+    Calculating Jiggle Bone spring Quaternion (2).
     """
     q0 = jb.parent.q
     q1 = jb.q
@@ -550,19 +578,21 @@ def quat_spring(jb: JB, r: Quaternion = None, k: float | None = None):
         jb.q = q1.normalized()
 
 
-def step(scene: bpy.types.Scene, dt: float):
+def step(scene: bpy.types.Scene, df: int):
     """
-    One simulation step with delta time (in seconds).
+    One simulation step with delta frames.
     """
-    dt /= scene.jiggle.sub_steps
+    if df == 0:  # No simulation if no delta frames.
+        return
     for o in scene.objects:
         if o.type != 'ARMATURE' or not o.data.jiggle.enabled:
             continue
+        dt = df / o.data.jiggle.fps  # Simulation delta time.
         ow = o.matrix_world.copy()
         scale = m_axis(ow, 0).length
-        frames = max(abs(int(dt * o.data.jiggle.fps)), 1)  # Amount of sub-frames for simulation.
-        while frames > 0:
-            frames -= 1
+        steps = max(1, scene.jiggle.sub_steps)
+        while steps > 0:
+            steps -= 1
             bl = []
             for b in o.pose.bones:
                 if b.parent is None:
@@ -673,17 +703,18 @@ def frame_change_post(scene: bpy.types.Scene):
     Called when timeline frame was changed after all Blender's updates.
     """
     if scene.jiggle.test_mode:
-        step(scene, scene.render.fps_base / scene.render.fps)
+        step(scene, 1)
 
 
 # noinspection PyUnresolvedReferences
 def bake(context: bpy.types.Context, bake_all: bool):
     """
-    Baking selected or all jiggle bones.
+    Baking Jiggle Bone transforms to current Action.
     """
     scene = context.scene
     if not scene.jiggle.test_mode:
-        print("Can't bake Jiggle Bone transforms with Jiggle Scene disabled.")
+        show_popup_menu(context, "Can't bake Jiggle Bone transforms with Jiggle Scene disabled.",
+                        "Baking Error", "ERROR")
         return
     print("Baking " + ("all" if bake_all else "selected") + " Jiggle Bones...")
     jiggle_armatures = []  # Keeping the list of Armatures that have at least one jiggle bone.
@@ -714,9 +745,10 @@ def bake(context: bpy.types.Context, bake_all: bool):
             jiggle_armatures.append((o, selected_bones))
     if len(jiggle_armatures) < 1:
         if bake_all:
-            print("No Jiggle Bones were found in this Scene.")
+            show_popup_menu(context, "No Jiggle Bones were found in this Scene.", "Baking Error",
+                            "ERROR")
         else:
-            print("No Jiggle Bones are selected.")
+            show_popup_menu(context, "No Jiggle Bones are selected.", "Baking Error", "ERROR")
         for jiggle_armature in jiggle_armatures:  # Restoring selected bones to each Armature.
             for b in jiggle_armature[0].pose.bones:
                 b.bone.select = b in jiggle_armature[1]
@@ -727,7 +759,8 @@ def bake(context: bpy.types.Context, bake_all: bool):
     for i in range(scene.frame_start, scene.frame_end + 1):
         print("Baking frame: ", str(i) + ".")
         scene.frame_set(i)
-        step(scene, scene.render.fps_base / scene.render.fps)
+        if i > scene.frame_start:  # Only updating pose after first frame.
+            step(scene, 1)
         for jiggle_armature in jiggle_armatures:
             context.view_layer.objects.active = jiggle_armature[0]
             m = jiggle_armature[0].mode == 'POSE'
@@ -751,7 +784,7 @@ def bake(context: bpy.types.Context, bake_all: bool):
 
 class JARMOTBake(bpy.types.Operator):
     """
-    Bake jiggle bone values to current action
+    Bake Jiggle Bone transforms to current Action
     """
     a: BoolProperty()
     bl_idname = "jiggle.bake"
@@ -768,7 +801,7 @@ classes = (JARMPTArmature, JiggleScene, JARMPTScene, JiggleArmature, JARMOTBake,
 
 def register():
     """
-    Function for registering addon.
+    Registering addon.
     """
     for cls in classes:
         register_class(cls)
@@ -800,7 +833,7 @@ def register():
 
 def unregister():
     """
-    Function for unregistering addon.
+    Unregistering addon.
     """
     for cls in reversed(classes):
         unregister_class(cls)

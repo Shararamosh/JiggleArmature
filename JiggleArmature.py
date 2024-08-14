@@ -1,6 +1,6 @@
-# pylint: disable=invalid-name, unsubscriptable-object, too-many-instance-attributes
-# pylint: disable=too-many-branches, too-many-statements, unsupported-assignment-operation
-# pylint: disable=too-many-locals, too-many-nested-blocks
+# pylint: disable=invalid-name, too-many-instance-attributes, unsupported-assignment-operation
+# pylint: disable=too-many-branches, too-many-statements
+# pylint: disable=too-many-locals, too-many-nested-blocks, global-statement
 """
 Copyright (c) 2019 Simón Flores (https://github.com/cheece)
 
@@ -45,13 +45,14 @@ from bpy.utils import register_class, unregister_class
 bl_info = {
     "name": "Jiggle Armature",
     "author": "Simón Flores, Shararamosh",
-    "version": (2, 4, 1),
+    "version": (2, 4, 2),
     "blender": (2, 80, 0),
     "description": "Jiggle Bone Animation Tool",
     "warning": "",
     "wiki_url": "",
-    "category": "Animation",
+    "category": "Animation"
 }
+previous_frame = None
 
 
 def show_popup_menu(context: bpy.types.Context, text: str, title: str, icon: str):
@@ -88,17 +89,20 @@ class JARMPTArmature(bpy.types.Panel):
     """
     bl_idname = "ARMATURE_PT_jiggle"
     bl_label = "Jiggle Armature"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
     bl_context = "data"
-    bl_options = {'DEFAULT_CLOSED'}
+    bl_options = {"DEFAULT_CLOSED"}
 
     @classmethod
     def poll(cls, context: bpy.types.Context):
         """
         Checking if Jiggle Armature panel can be active.
         """
-        return context.object is not None and context.object.type == 'ARMATURE'
+        global previous_frame
+        if not isinstance(previous_frame, int):
+            previous_frame = context.scene.frame_current
+        return context.object is not None and context.object.type == "ARMATURE"
 
     def draw_header(self, context: bpy.types.Context):
         """
@@ -123,10 +127,10 @@ class JARMPTScene(bpy.types.Panel):
     """
     bl_idname = "SCENE_PT_jiggle"
     bl_label = "Jiggle Scene"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
     bl_context = "scene"
-    bl_options = {'DEFAULT_CLOSED'}
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw_header(self, context: bpy.types.Context):
         """
@@ -187,7 +191,7 @@ def reset_jigglebone_state(context: bpy.types.Context):
     """
     scene = context.scene
     for o in scene.objects:
-        if o.type != 'ARMATURE' or not o.select_get():
+        if o.type != "ARMATURE" or not o.select_get():
             continue
         ow = o.matrix_world
         for b in o.pose.bones:
@@ -212,7 +216,7 @@ class JARMOTReset(bpy.types.Operator):
         Function that resets current jiggle bone values.
         """
         reset_jigglebone_state(context)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 def set_jigglebone_rest_state(context: bpy.types.Context):
@@ -221,7 +225,7 @@ def set_jigglebone_rest_state(context: bpy.types.Context):
     """
     scene = context.scene
     for o in scene.objects:
-        if o.type != 'ARMATURE' or not o.select_get():
+        if o.type != "ARMATURE" or not o.select_get():
             continue
         for b in o.pose.bones:
             if b.bone.select:
@@ -243,7 +247,7 @@ class JARMOTSetRest(bpy.types.Operator):
         Setting current Bone transforms as Jiggle Bone Rest Pose.
         """
         set_jigglebone_rest_state(context)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class JARMPTBone(bpy.types.Panel):
@@ -252,19 +256,22 @@ class JARMPTBone(bpy.types.Panel):
     """
     bl_idname = "BONE_PT_jiggle_bone"
     bl_label = "Jiggle Bone"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
     bl_context = "bone"
-    bl_options = {'DEFAULT_CLOSED'}
+    bl_options = {"DEFAULT_CLOSED"}
 
     @classmethod
     def poll(cls, context: bpy.types.Context):
         """
         Checking if Jiggle Bone panel can be active.
         """
+        global previous_frame
+        if not isinstance(previous_frame, int):
+            previous_frame = context.scene.frame_current
         if context.object is None:
             return False
-        if context.object.type != 'ARMATURE':
+        if context.object.type != "ARMATURE":
             return False
         return context.bone is not None
 
@@ -294,7 +301,7 @@ class JARMPTBone(bpy.types.Panel):
         col.prop_search(context.bone, "jiggle_control_object", bpy.data, "objects")
         if context.bone.jiggle_control_object in bpy.data.objects:
             o = bpy.data.objects[context.bone.jiggle_control_object]
-            if o.type == 'ARMATURE':
+            if o.type == "ARMATURE":
                 col.prop_search(context.bone, "jiggle_control_bone", o.data, "bones")
             col.prop(context.bone, "jiggle_control")
         col.operator("jiggle.reset")
@@ -303,7 +310,7 @@ class JARMPTBone(bpy.types.Panel):
             col.prop(context.bone, "jiggle_rest")
             col.operator("jiggle.set_rest")
         if context.bone.parent is None:
-            col.label(text="Warning: Jiggle bones without parent will fall.", icon='COLOR_RED')
+            col.label(text="Warning: Jiggle bones without parent will fall.", icon="COLOR_RED")
 
 
 # adapted from https://github.com/InteractiveComputerGraphics/PositionBasedDynamics/blob/master/
@@ -398,7 +405,8 @@ class JB:
 
 def prop_b(ow: Matrix, b: bpy.types.PoseBone, jb_list: list[JB], p: JB | None):
     """
-    Creating new JB object for current PoseBone and its children and appending them to list.
+    Creating new JB objects for current PoseBone, its children and potentially a parent
+    and appending them to list.
     """
     j = JB(b, ow @ b.matrix, p)
     jb_list.append(j)
@@ -585,7 +593,7 @@ def step(scene: bpy.types.Scene, df: int):
     if df == 0:  # No simulation if no delta frames.
         return
     for o in scene.objects:
-        if o.type != 'ARMATURE' or not o.data.jiggle.enabled:
+        if o.type != "ARMATURE" or not o.data.jiggle.enabled:
             continue
         dt = df / o.data.jiggle.fps  # Simulation delta time.
         ow = o.matrix_world.copy()
@@ -593,11 +601,11 @@ def step(scene: bpy.types.Scene, df: int):
         steps = max(1, scene.jiggle.sub_steps)
         while steps > 0:
             steps -= 1
-            bl = []
+            bl: list[JB] = []
             for b in o.pose.bones:
                 if b.parent is None:
                     prop_b(ow, b, bl, None)
-            bl2 = []
+            bl2: list[JB] = []
             for wb in bl:
                 b = wb.b
                 wb.rest_w = b.bone.matrix_local.copy()
@@ -606,8 +614,6 @@ def step(scene: bpy.types.Scene, df: int):
                 s_axis(wb.rest_w, 3, m_axis(wb.rest_w, 3) + temp)
             for wb in bl:
                 b = wb.b
-                wb.restW = b.bone.matrix_local.copy() * scale
-                s_axis(wb.restW, 3, m_axis(wb.restW, 3) * scale)
                 m = wb.m
                 if b.bone.jiggle_enabled:
                     wb.x = wb.p = b.bone.jiggle_P
@@ -615,9 +621,6 @@ def step(scene: bpy.types.Scene, df: int):
                     wb.rest = wb.rest_w
                     if b.parent is not None:
                         wb.rest = wb.parent.rest_w.inverted() @ wb.rest_w
-                    wb.rest_base = b.bone.matrix_local
-                    if b.parent is not None:
-                        wb.rest_base = b.parent.bone.matrix_local.inverted() @ wb.rest_base
                     temp = (m_axis(wb.rest_w, 3) - m_axis(wb.rest_w, 1) * b.bone.length
                             * 0.5 * scale)
                     wb.rest_p = wb.parent.rest_w.inverted() @ temp
@@ -636,7 +639,7 @@ def step(scene: bpy.types.Scene, df: int):
                     if b.bone.jiggle_control_object in bpy.data.objects:
                         target_object = bpy.data.objects[b.bone.jiggle_control_object]
                         target_matrix = target_object.matrix_local
-                        if (target_object.type == 'ARMATURE'
+                        if (target_object.type == "ARMATURE"
                                 and b.bone.jiggle_control_bone in target_object.pose.bones):
                             cb = target_object.pose.bones[b.bone.jiggle_control_bone]
                             target_matrix = cb.matrix
@@ -691,9 +694,11 @@ def step(scene: bpy.types.Scene, df: int):
             for wb in bl2:
                 b = wb.b
                 p_m = ow
+                rest_base = b.bone.matrix_local
                 if b.parent is not None:
+                    rest_base = b.parent.bone.matrix_local.inverted() @ rest_base
                     p_m = wb.parent.m
-                mb = (p_m @ wb.rest_base).inverted() @ wb.m
+                mb = (p_m @ rest_base).inverted() @ wb.m
                 b.matrix_basis = mb
 
 
@@ -702,8 +707,10 @@ def frame_change_post(scene: bpy.types.Scene):
     """
     Called when timeline frame was changed after all Blender's updates.
     """
-    if scene.jiggle.test_mode:
-        step(scene, 1)
+    global previous_frame
+    if isinstance(previous_frame, int) and scene.jiggle.test_mode:
+        step(scene, scene.frame_current-previous_frame)
+    previous_frame = scene.frame_current
 
 
 # noinspection PyUnresolvedReferences
@@ -717,15 +724,16 @@ def bake(context: bpy.types.Context, bake_all: bool):
                         "Baking Error", "ERROR")
         return
     print("Baking " + ("all" if bake_all else "selected") + " Jiggle Bones...")
-    jiggle_armatures = []  # Keeping the list of Armatures that have at least one jiggle bone.
+    jiggle_armatures: list[bpy.types.Armature] = []  # Keeping the list of Armatures that have
+    # at least one jiggle bone.
     for o in scene.objects:
-        if o.type != 'ARMATURE' or not o.data.jiggle.enabled:
+        if o.type != "ARMATURE" or not o.data.jiggle.enabled:
             continue
         if not bake_all and not o.select_get():
             continue
         ow = o.matrix_world
         has_any_jiggle_bone = False
-        selected_bones = []
+        selected_bones: list[bpy.types.PoseBone] = []
         for b in o.pose.bones:
             if b.bone.select:
                 selected_bones.append(b)
@@ -757,16 +765,16 @@ def bake(context: bpy.types.Context, bake_all: bool):
     previous_active = context.view_layer.objects.active
     scene.jiggle.test_mode = False
     for i in range(scene.frame_start, scene.frame_end + 1):
-        print("Baking frame: ", str(i) + ".")
+        print("Baking frame: %i.", i)
         scene.frame_set(i)
         if i > scene.frame_start:  # Only updating pose after first frame.
             step(scene, 1)
         for jiggle_armature in jiggle_armatures:
             context.view_layer.objects.active = jiggle_armature[0]
-            m = jiggle_armature[0].mode == 'POSE'
+            m = jiggle_armature[0].mode == "POSE"
             if not m:
                 bpy.ops.object.posemode_toggle()
-            bpy.ops.anim.keyframe_insert_menu(type='LocRotScale')
+            bpy.ops.anim.keyframe_insert_menu(type="LocRotScale")
             if bake_all or not m:
                 bpy.ops.object.posemode_toggle()
     scene.frame_set(current_frame)
@@ -792,7 +800,7 @@ class JARMOTBake(bpy.types.Operator):
 
     def execute(self, context):
         bake(context, self.a)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 classes = (JARMPTArmature, JiggleScene, JARMPTScene, JiggleArmature, JARMOTBake, JARMOTSetRest,
@@ -805,10 +813,11 @@ def register():
     """
     for cls in classes:
         register_class(cls)
-    bpy.app.handlers.frame_change_post.append(frame_change_post)
+    if frame_change_post not in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.append(frame_change_post)
     bpy.types.Scene.jiggle = bpy.props.PointerProperty(type=JiggleScene)
     bpy.types.Armature.jiggle = bpy.props.PointerProperty(type=JiggleArmature,
-                                                          options={'ANIMATABLE'})
+                                                          options={"ANIMATABLE"})
     bpy.types.Bone.jiggle_enabled = BoolProperty(default=False, update=fun_p("jiggle_enabled"))
     bpy.types.Bone.jiggle_Kld = FloatProperty(name="Linear damping", min=0.0, max=1.0, default=0.01,
                                               update=fun_p("jiggle_Kld"))
@@ -818,13 +827,13 @@ def register():
                                              update=fun_p("jiggle_Ks"))
     bpy.types.Bone.jiggle_mass = FloatProperty(name="Mass", min=0.0001, default=1.0,
                                                update=fun_p("jiggle_mass"))
-    bpy.types.Bone.jiggle_R = FloatVectorProperty(name="Rotation", size=4, subtype='QUATERNION')
-    bpy.types.Bone.jiggle_W = FloatVectorProperty(size=3, subtype='XYZ')  # angular velocity
-    bpy.types.Bone.jiggle_P = FloatVectorProperty(size=3, subtype='XYZ')
-    bpy.types.Bone.jiggle_V = FloatVectorProperty(size=3, subtype='XYZ')  # linear velocity, ok?
+    bpy.types.Bone.jiggle_R = FloatVectorProperty(name="Rotation", size=4, subtype="QUATERNION")
+    bpy.types.Bone.jiggle_W = FloatVectorProperty(size=3, subtype="XYZ")  # angular velocity
+    bpy.types.Bone.jiggle_P = FloatVectorProperty(size=3, subtype="XYZ")
+    bpy.types.Bone.jiggle_V = FloatVectorProperty(size=3, subtype="XYZ")  # linear velocity, ok?
     bpy.types.Bone.jiggle_use_custom_rest = BoolProperty(default=False, name="Use Custom Rest Pose",
                                                          update=fun_p("jiggle_use_custom_rest"))
-    bpy.types.Bone.jiggle_rest = FloatVectorProperty(name="Rotation", size=4, subtype='QUATERNION')
+    bpy.types.Bone.jiggle_rest = FloatVectorProperty(name="Rotation", size=4, subtype="QUATERNION")
     bpy.types.Bone.jiggle_control = FloatProperty(name="Control", min=0.0, max=1.0, default=1,
                                                   update=fun_p("jiggle_control"))
     bpy.types.Bone.jiggle_control_object = bpy.props.StringProperty(name="Control Object")
@@ -840,5 +849,5 @@ def unregister():
     bpy.app.handlers.frame_change_post.remove(frame_change_post)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     register()
